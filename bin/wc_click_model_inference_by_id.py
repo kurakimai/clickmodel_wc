@@ -18,6 +18,8 @@ try:
 except:
     from config_sample import *
     
+from POM_function import *
+    
 
 
 REL_PRIORS = (0.5, 0.5)
@@ -26,14 +28,25 @@ DEFAULT_REL = REL_PRIORS[1] / sum(REL_PRIORS)
 
 MAX_QUERY_ID = 1000     # some initial value that will be updated by InputReader
 
-SessionItem = namedtuple('SessionItem', ['intentWeight', 'query', 'urls', 'layout', 'clicks', 'extraclicks', 'lds', 'hmrs', 'vfts', 'fts', 'hts', 'ans', 'exams'])
+SessionItem = namedtuple('SessionItem', ['intentWeight', 'query', 'urls', 'layout', 'clicks', 'click_times', 'extraclicks', 'lds', 'hmrs', 'vfts', 'fts', 'hts', 'ans', 'exams'])
 
 class ClickModel:
 
     def __init__(self, ignoreIntents=True, ignoreLayout=True):
         self.ignoreIntents = ignoreIntents
         self.ignoreLayout = ignoreLayout
-
+        
+    def output_perplexity(self, file_name):
+        #query  session_count overall_perplexity
+        #perplexity for postion 1 to 10
+        out_file = open(file_name, "w")
+        out_file.write(str("Overall") + "\t" + str(self.test_perplexity_session_count) + "\t" + str(self.test_perplexity_position[MAX_DOCS_PER_QUERY]) + "\n")
+        out_file.write(arr_string(self.test_perplexity_position[0:MAX_DOCS_PER_QUERY]) + "\n")
+        for q in xrange(MAX_QUERY_ID):
+            out_file.write(str(q) + "\t" + str(self.test_perplexity_query_session_count[q]) + "\t" + str(self.test_perplexity_query_position[q][MAX_DOCS_PER_QUERY]) + "\n")
+            out_file.write(arr_string(self.test_perplexity_query_position[q][0:MAX_DOCS_PER_QUERY]) + "\n")
+        out_file.close()
+        
     def train(self, sessions):
         """
             Set some attributes that will be further used in _getClickProbs function
@@ -41,6 +54,10 @@ class ClickModel:
         pass
 
     def test(self, sessions, reportPositionPerplexity=True):
+        self.test_perplexity_position = [0.0 for i in xrange(MAX_DOCS_PER_QUERY + 1)] 
+        self.test_perplexity_query_position = [[0.0 for i in xrange(MAX_DOCS_PER_QUERY + 1)] for q in xrange(MAX_QUERY_ID)] # [0]: value, [1]: count, last_element: overall
+        self.test_perplexity_query_session_count = [0 for q in xrange(MAX_QUERY_ID)]
+        self.test_perplexity_session_count = 0
         logLikelihood = 0.0
         positionPerplexity = [0.0] * MAX_DOCS_PER_QUERY
         positionPerplexityClickSkip = [[0.0, 0.0] for i in xrange(MAX_DOCS_PER_QUERY)]
@@ -48,6 +65,7 @@ class ClickModel:
         countsClickSkip = [[0, 0] for i in xrange(MAX_DOCS_PER_QUERY)]
         possibleIntents = [False] if self.ignoreIntents else [False, True]
         for s in sessions:
+            query = s.query
             iw = s.intentWeight
             intentWeight = {False: 1.0} if self.ignoreIntents else {False: 1 - iw, True: iw}
             clickProbs = self._getClickProbs(s, possibleIntents)
@@ -61,12 +79,10 @@ class ClickModel:
                 assert abs(x + y - 1) < 0.01, (x, y)
             logLikelihood += math.log(sum(clickProbs[i][N - 1] * intentWeight[i] for i in possibleIntents))      # log_e
             correctedRank = 0    # we are going to skip clicks on fake pager urls
+            self.test_perplexity_query_session_count[query] += 1
+            self.test_perplexity_session_count += 1
             for k, click in enumerate(s.clicks):
                 click = 1 if click else 0
-                if s.extraclicks.get('TRANSFORMED', False) and (k + 1) % (SERP_SIZE + 1) == 0:
-                    if DEBUG:
-                        assert s.urls[k] == 'PAGER'
-                    continue
                 # P(C_k | C_1, ..., C_{k-1}) = \sum_I P(C_1, ..., C_k | I) P(I) / \sum_I P(C_1, ..., C_{k-1} | I) P(I)
                 curClick = dict((i, clickProbs[i][k]) for i in possibleIntents)
                 prevClick = dict((i, clickProbs[i][k - 1]) for i in possibleIntents) if k > 0 else dict((i, 1.0) for i in possibleIntents)
@@ -75,12 +91,25 @@ class ClickModel:
                 positionPerplexityClickSkip[correctedRank][click] += logProb
                 counts[correctedRank] += 1
                 countsClickSkip[correctedRank][click] += 1
+                self.test_perplexity_query_position[query][correctedRank] += logProb
+                self.test_perplexity_query_position[query][MAX_DOCS_PER_QUERY] += logProb
                 correctedRank += 1
         positionPerplexity = [2 ** (-x / count if count else x) for (x, count) in zip(positionPerplexity, counts)]
         positionPerplexityClickSkip = [[2 ** (-x[click] / (count[click] if count[click] else 1) if count else x) \
                 for (x, count) in zip(positionPerplexityClickSkip, countsClickSkip)] for click in xrange(2)]
         perplexity = sum(positionPerplexity) / len(positionPerplexity)
         N = len(sessions)
+        
+        for q in xrange(MAX_QUERY_ID):
+            for i in range(0, MAX_DOCS_PER_QUERY + 1):
+                _x = self.test_perplexity_query_position[q][i]
+                _c = self.test_perplexity_query_session_count[q]
+                if i == MAX_DOCS_PER_QUERY:
+                    _c *= MAX_DOCS_PER_QUERY
+                self.test_perplexity_query_position[q][i] = (2.0 ** (- _x / _c if _c else _x))
+        for i in range(0, MAX_DOCS_PER_QUERY):
+            self.test_perplexity_position[i] = positionPerplexity[i]
+        self.test_perplexity_position[MAX_DOCS_PER_QUERY] = perplexity
         
         ret_str = "LogLikelihood\t" + str(logLikelihood / N / MAX_DOCS_PER_QUERY) + "\n"
         ret_str += "Perplexity\t" + str(perplexity) + "\n"
@@ -112,6 +141,18 @@ class DbnModel(ClickModel):
     def __init__(self, gammas, ignoreIntents=True, ignoreLayout=True):
         self.gammas = gammas
         ClickModel.__init__(self, ignoreIntents, ignoreLayout)
+    
+    def get_model_info(self):
+        ret = "+++++DBN:\n"
+        return ret
+    
+    def get_relevance_list(self):
+        possibleIntents = [False] if self.ignoreIntents else [False, True]
+        ret = []
+        for q in xrange(MAX_QUERY_ID):
+            for url in self.urlRelevances[False][q].keys():
+                ret.append([q, url, self.urlRelevances[False][q][url]['a'] * self.urlRelevances[False][q][url]['s']])
+        return ret
 
     def train(self, sessions):
         possibleIntents = [False] if self.ignoreIntents else [False, True]
@@ -457,17 +498,18 @@ class InputReader:
             if not line:
                 break
             arr = line.rstrip().split('\t')
-            if len(arr) != 9:
+            if len(arr) < 10:
                 continue
             query = int(arr[0])
             urls = string_arr(arr[1], " ", "int")
             clicks = string_arr(arr[2], " ", "int")
-            lds = string_arr(arr[3], " ", "float")
-            hmrs = string_arr(arr[4], " ", "float")
-            vfts = string_arr(arr[5], " ", "float")
-            fts = string_arr(arr[6], " ", "float")
-            hts = string_arr(arr[7], " ", "float")
-            ans = string_arr(arr[8], " ", "float")
+            click_times = string_arr(arr[3], " ", "float")
+            lds = string_arr(arr[4], " ", "float")
+            hmrs = string_arr(arr[5], " ", "float")
+            vfts = string_arr(arr[6], " ", "float")
+            fts = string_arr(arr[7], " ", "float")
+            hts = string_arr(arr[8], " ", "float")
+            ans = string_arr(arr[9], " ", "float")
             exams = {}
             layout = []
             for i in range(0, MAX_DOCS_PER_QUERY):
@@ -480,12 +522,13 @@ class InputReader:
             urlsObserved = len(urls)
             layout = layout[:urlsObserved]
             clicks = clicks[:urlsObserved]
+            click_times = click_times[:urlsObserved]
             if urlsObserved < MIN_DOCS_PER_QUERY:
                 continue
             intentWeight = float(intentWeight)
             # add fake G_{MAX_DOCS_PER_QUERY+1} to simplify gamma calculation:
             layout.append(False)
-            sessions.append(SessionItem(intentWeight, query, urls, layout, clicks, extra, lds, hmrs, vfts, fts, hts, ans, exams))
+            sessions.append(SessionItem(intentWeight, query, urls, layout, clicks, click_times, extra, lds, hmrs, vfts, fts, hts, ans, exams))
             session_count += 1
         in_file.close()
         print "from " + f + " load " + str(session_count) + " sessions"
@@ -939,8 +982,248 @@ class WCClassUbmModel(ClickModel):
             if c != 0:
                 prevClick = rank
         return clickProbs
-          
+
+class POMModel(ClickModel):        
+    def __init__(self, ignoreIntents=True, ignoreLayout=True, explorationBias=False, train_round = 10):
+        self.train_round = train_round
+        self.explorationBias = explorationBias
+        ClickModel.__init__(self, ignoreIntents, ignoreLayout)
+    
+    def generate_click_seq(self, click_list, click_time_list):
+        click_seq_list = []
+        for i in range(0, len(click_list)):
+            if click_list[i] == 1:
+                click_seq_list.append([i, click_time_list[i]])
+        click_seq_list = sorted(click_seq_list, key = lambda x: x[1], reverse=False)
+        return click_seq_list
+    
+    def train(self, sessions):
+        #possibleIntents = [False] if self.ignoreIntents else [False, True]# no use
+        
+        self.query_V = [[[1.0 for j in xrange(MAX_DOCS_PER_QUERY)] for i in xrange(MAX_DOCS_PER_QUERY)] for q in xrange(MAX_QUERY_ID)]
+        self.query_S = [[1.0 for i in xrange(MAX_DOCS_PER_QUERY)] for q in xrange(MAX_QUERY_ID)]
+        self.first_click_prob = [1.0 for q in xrange(MAX_QUERY_ID)]
+
+        for iteration_count in xrange(MAX_ITERATION_POM):
+            iter_V_up = [[[0.0 for j in xrange(MAX_DOCS_PER_QUERY)] for i in xrange(MAX_DOCS_PER_QUERY)] for q in xrange(MAX_QUERY_ID)]
+            iter_V_down = [[0.0 for i in xrange(MAX_DOCS_PER_QUERY)] for q in xrange(MAX_QUERY_ID)]
+            iter_S_up = [[0.0 for i in xrange(MAX_DOCS_PER_QUERY)] for q in xrange(MAX_QUERY_ID)]
             
+            session_p_count = 0
+            for s in sessions:
+                # session_p_count += 1
+                # if session_p_count % 100 == 0:
+                    # print "POM process " + str(session_p_count)
+                query = s.query
+                ori_v_list = []
+                click_seq_list = self.generate_click_seq(s.clicks, s.click_times)
+                for i in range(0, len(click_seq_list)):
+                    ori_v_list.append(click_seq_list[i][0])
+                ori_s_list = [0 for x in ori_v_list]
+                path_list = []
+                add_Qk_list(0, len(ori_v_list) - 1, path_list, ori_v_list, ori_s_list, self.query_V[query], self.query_S[query], self.first_click_prob[query], iteration_count, MAX_QK_LENGTH, MAX_INSERT_NUM, MAX_DOCS_PER_QUERY)
+                #print "path list num " + str(len(path_list))
+                if len(path_list) == 0:
+                    #ignore no click session
+                    continue
+                for path in path_list:
+                    for i in range(0, len(path.v_list) - 1):
+                        m = path.v_list[i]
+                        n = path.v_list[i + 1]
+                        iter_V_up[query][m][n] = iter_V_up[query][m][n] + path.prob
+                    for i in range(0, len(path.v_list)):
+                        m = path.v_list[i]
+                        iter_V_down[query][m] = iter_V_down[query][m] + path.prob
+                        if path.s_list[i] == 1:
+                            iter_S_up[query][m] = iter_S_up[query][m] + path.prob
+            for query in range(0, MAX_QUERY_ID):
+                for m in range(0, MAX_DOCS_PER_QUERY):
+                    if iter_V_down[query][m] > 0:
+                        query_S[query][m] = iter_S_up[query][m] / iter_V_down[query][m]
+                        for n in range(0, MAX_DOCS_PER_QUERY):
+                            query_V[query][m][n] = iter_V_up[query][m][n] / iter_V_down[query][m]
+                            
+            if not PRETTY_LOG:
+                sys.stderr.write('M\n')
+            if PRETTY_LOG:
+                sys.stderr.write('%d..' % (iteration_count + 1))
+            else:
+                print >>sys.stderr, 'Iteration: %d' % (iteration_count + 1)
+                
+    def _getClickProbs(self, s, possibleIntents):
+        """
+            Returns clickProbs list
+            clickProbs[i][k] = P(C_1, ..., C_k | I=i)
+        """
+        clickProbs = dict((i, []) for i in possibleIntents)
+        for i in possibleIntents:
+            for rank in range(0, MAX_DOCS_PER_QUERY):
+                query = s.query
+                ori_v_list = []
+                click_seq_list = self.generate_click_seq(s.clicks, s.click_times)
+                for j in range(0, len(click_seq_list)):
+                    ori_v_list.append(click_seq_list[j][0])
+                ori_s_list = [0 for x in ori_v_list]
+                path_list = []
+                add_Qk_list(0, len(ori_v_list) - 1, path_list, ori_v_list, ori_s_list, self.query_V[query], self.query_S[query], self.first_click_prob[query], 1, MAX_QK_LENGTH, MAX_INSERT_NUM, MAX_DOCS_PER_QUERY)
+                path_list = sorted(path_list, key=lambda x: x.prob, reverse = True)
+                if len(path_list) > 0:
+                    clickProbs[i].append(path_list[0].prob)
+                else:
+                    clickProbs[i].append(0.2)
+        return clickProbs
+        
+class RevisitModelUBM(ClickModel):        
+    def __init__(self, ignoreIntents=True, ignoreLayout=True, explorationBias=False):
+        self.explorationBias = explorationBias
+        ClickModel.__init__(self, ignoreIntents, ignoreLayout)
+    
+    def get_model_info(self):
+        ret = "+++++Gamma:\n"
+        for i in range(MAX_DOCS_PER_QUERY):
+            ret += "i : " + str(i) + "\n"
+            for m in xrange(MAX_DOCS_PER_QUERY + 1):
+                for n in xrange(MAX_DOCS_PER_QUERY + 1):
+                    ret += str(self.gamma[i][m][n]) + "\t"
+                ret += "\n"
+        return ret
+        
+    def get_relevance_list(self):
+        ret = []
+        for q in xrange(MAX_QUERY_ID):
+            for url in self.alpha[q].keys():
+                ret.append([q, url, self.alpha[q][url]])
+        return ret
+    
+    def generate_click_seq(self, click_list, click_time_list):
+        click_seq_list = []
+        for i in range(0, len(click_list)):
+            if click_list[i] == 1:
+                click_seq_list.append([i, click_time_list[i]])
+        click_seq_list = sorted(click_seq_list, key = lambda x: x[1], reverse=False)
+        return click_seq_list
+        
+    def train(self, sessions):
+        #possibleIntents = [False] if self.ignoreIntents else [False, True]# no use
+        # alpha: attractiveness probability[ q: query, u:url]
+        self.alpha = [defaultdict(lambda: DEFAULT_REL) for q in xrange(MAX_QUERY_ID)]
+        #self.mu = [[(1.0 / self.gammaTypesNum) for g in xrange(self.gammaTypesNum)] for q in xrange(MAX_QUERY_ID)]
+        #gamma: examination probability[ i current rank, m: prev click (first is -1 (MAX_DOCS_PER_QUERY in array)), n:next click (last no click is MAX_DOCS_PER_QUERY)]
+        self.gamma = [[[0.5 for n in xrange(MAX_DOCS_PER_QUERY + 1)] for m in xrange(MAX_DOCS_PER_QUERY + 1)] for i in xrange(MAX_DOCS_PER_QUERY)]
+        if not PRETTY_LOG:
+            print >>sys.stderr, '-' * 80
+            print >>sys.stderr, 'Start. Current time is', datetime.now()
+        for iteration_count in xrange(MAX_ITERATIONS):
+            self.queryIntentsWeights = defaultdict(lambda: [])
+            # not like in DBN! xxxFractions[0] is a numerator while xxxFraction[1] is a denominator
+            alphaFractions = [defaultdict(lambda: [1.0, 0.5, 0.5]) for q in xrange(MAX_QUERY_ID)]#part (a) (b) (c)
+            #muFranctions = [[[0.0, 0.0] for g in xrange(self.gammaTypesNum)] for q in xrange(MAX_QUERY_ID)]
+            gammaFractions = [[[[1.0, 0.5, 0.5] for n in xrange(MAX_DOCS_PER_QUERY + 1)] for m in xrange(MAX_DOCS_PER_QUERY + 1)] for i in xrange(MAX_DOCS_PER_QUERY)]
+            
+            #E-step
+            for s in sessions:
+                query = s.query
+                layout = [False] * len(s.layout) if self.ignoreLayout else s.layout
+                p_I__C_G = {False: 1.0, True: 0}
+                self.queryIntentsWeights[query].append(p_I__C_G[True])
+                click_seq_list = self.generate_click_seq(s.clicks, s.click_times)
+                p_click = MAX_DOCS_PER_QUERY #default C_0
+                for l in range(0, len(click_seq_list) + 1):
+                    if l == len(click_seq_list):
+                        n_click = MAX_DOCS_PER_QUERY
+                    else:
+                        n_click = click_seq_list[l][0]
+                    m = p_click
+                    n = n_click
+                    i_begin = min(m,n) + 1
+                    i_end = max(m,n) + 1
+                    if m == MAX_DOCS_PER_QUERY: #first
+                        i_begin = 0
+                        i_end = n + 1
+                    if n == MAX_DOCS_PER_QUERY:
+                        i_end = MAX_DOCS_PER_QUERY
+                    for i in range(i_begin, i_end):
+                        url = s.urls[i]
+                        a = self.alpha[query][url]
+                        g = self.gamma[i][m][n]
+                        if i == n:
+                            alphaFractions[query][url][2] += 1.0
+                            gammaFractions[i][m][n][2] += 1.0
+                        else:
+                            alphaFractions[query][url][0] += (1.0 - a) / (1.0 - a * g)
+                            alphaFractions[query][url][1] += a * (1.0 - g) / (1.0 - a * g)
+                            gammaFractions[i][m][n][0] += (1.0 - g) / (1.0 - a * g)
+                            gammaFractions[i][m][n][1] += g * (1.0 - a) / (1.0 - a * g)
+                    p_click = n_click
+            
+            # M-step
+            sum_square_displacement = 0.0
+            num_points = 0
+            for q in xrange(MAX_QUERY_ID):
+                for url, aF in alphaFractions[q].iteritems():
+                    new_alpha = (aF[1] + aF[2]) / (aF[0] + aF[1] + aF[2])
+                    sum_square_displacement += (self.alpha[q][url] - new_alpha) ** 2
+                    num_points += 1
+                    self.alpha[q][url] = new_alpha
+            for i in xrange(MAX_DOCS_PER_QUERY):
+                for m in xrange(MAX_DOCS_PER_QUERY + 1):
+                    for n in xrange(MAX_DOCS_PER_QUERY):
+                        gF = gammaFractions[i][m][n]
+                        new_gamma = (gF[1] + gF[2]) / (gF[0] + gF[1] + gF[2])
+                        sum_square_displacement += (self.gamma[i][m][n] - new_gamma) ** 2
+                        num_points += 1
+                        self.gamma[i][m][n] = new_gamma
+            if not PRETTY_LOG:
+                sys.stderr.write('M\n')
+            rmsd = math.sqrt(sum_square_displacement / (num_points if TRAIN_FOR_METRIC else 1.0))
+            if PRETTY_LOG:
+                sys.stderr.write('Iteration: %d, RMSD: %.10f' % (iteration_count + 1, rmsd))
+            else:
+                print >>sys.stderr, 'Iteration: %d, RMSD: %.10f' % (iteration_count + 1, rmsd)
+        if PRETTY_LOG:
+            sys.stderr.write('\n')
+        
+    def _getClickProbs(self, s, possibleIntents):
+        """
+            Returns clickProbs list
+            clickProbs[i][k] = P(C_1, ..., C_k | I=i)
+        """
+        clickProbs = dict((poi, []) for poi in possibleIntents)
+        layout = [False] * len(s.layout) if self.ignoreLayout else s.layout
+        query = s.query
+        P0T = [1.0 for k in xrange(MAX_DOCS_PER_QUERY)]
+        click_seq_list = self.generate_click_seq(s.clicks, s.click_times)
+        p_click = MAX_DOCS_PER_QUERY
+        for l in range(0, len(click_seq_list) + 1):
+            if l == len(click_seq_list):
+                n_click = MAX_DOCS_PER_QUERY
+            else:
+                n_click = click_seq_list[l][0]
+            m = p_click
+            n = n_click
+            i_begin = min(m,n) + 1
+            i_end = max(m,n) + 1
+            if m == MAX_DOCS_PER_QUERY: #first
+                i_begin = 0
+                i_end = n + 1
+            if n == MAX_DOCS_PER_QUERY:
+                i_end = MAX_DOCS_PER_QUERY
+            for i in range(i_begin, i_end):
+                url = s.urls[i]
+                a = self.alpha[query][url]
+                g = self.gamma[i][m][n]
+                P0T[i] *= (1.0 - a * g)
+        for rank, c in enumerate(s.clicks):
+            url = s.urls[rank]
+            prob = {False: 0.0, True: 0.0}
+            for poi in possibleIntents:
+                prevProb = 1 if rank == 0 else clickProbs[poi][-1]
+                if c == 0:
+                    clickProbs[poi].append(prevProb * P0T[rank])
+                else:
+                    clickProbs[poi].append(prevProb * (1.0 - P0T[rank]))
+        return clickProbs
+    
 def load_class_map(file_name, K):
     query_class_map = {}
     in_file = open(file_name)
@@ -960,6 +1243,8 @@ def load_class_map(file_name, K):
     global MAX_QUERY_ID
     MAX_QUERY_ID = wc_query_id + 1
     return (query_class_map)
+    
+
 
 def output_relevance(file_name, relevance_list):
     out_file = open(file_name, "w")
@@ -973,21 +1258,30 @@ def output_information_to_file(file_name, information):
     out_file.write(information)
     out_file.close()
     
+def test_model(model_obj, model_name):
+    log_info = "Train: " + str(model_name) + "\n"
+    print >>sys.stderr, log_info
+    print log_info
+    model_obj.train(sessions)
+    test_info = str(model_name) + '\n' + model_obj.test(testSessions) + "\n"
+    model_info = model_obj.get_model_info()
+    relevance_list = model_obj.get_relevance_list()
+    print >>sys.stderr, test_info
+    print test_info
+    output_relevance(out_dir + "/_" + str(model_name) + ".model.relevance", relevance_list)
+    output_information_to_file(out_dir + "/_" + str(model_name) + ".model", test_info + model_info)
+    model_obj.output_perplexity(out_dir + "/_" + str(model_name) + ".model.perplexity")
+    del relevance_list
+    del model_obj
+    
 if __name__ == '__main__':
-    root_dir = "D:/work/sogou/MOUSE"
+    root_dir = ".."
     readInput = InputReader()
-    CLASS_K = 3
-    DAY_D = 1
-    TEST_MODELS = []
-    if len(sys.argv) >= 2:
-        CLASS_K = int(sys.argv[1])
-    if len(sys.argv) >= 3:
-        DAY_D = int(sys.argv[2])
-    if len(sys.argv) >= 4:
-        for i in range(3, len(sys.argv)):
-            TEST_MODELS.append(sys.argv[i])
-    data_dir = root_dir + "/data/K" + str(CLASS_K) + "D" + str(DAY_D) + "_click_data_test" 
-    out_dir = root_dir + "/data/model_output_test"
+    #data_dir = root_dir + "/data/sample_1000"
+    data_dir = sys.argv[1]
+    out_dir = data_dir + "/output"
+    if not os.path.exists(out_dir):
+        os.system("mkdir " + out_dir)
     
     (query_class_map) = load_class_map(data_dir + "/query_class", CLASS_K)
     
@@ -997,72 +1291,26 @@ if __name__ == '__main__':
     del readInput       # needed to minimize memory consumption (see gc.collect() below)
 
     print 'Train sessions: %d, test sessions: %d' % (len(sessions), len(testSessions))
-    #print 'Number of train sessions with 10+ urls shown:', len([s for s in sessions if len(s.urls) > SERP_SIZE + 1])
-
-    # if 'Baseline' in USED_MODELS:
-        # baselineModel = ClickModel()
-        # baselineModel.train(sessions)
-        # print 'Baseline\n', baselineModel.test(testSessions)
-        
-    # if 'UBM' in TEST_MODELS:
-        # ubmModel = UbmModel()
-        # ubmModel.train(sessions)
-        # print 'UBM\n', ubmModel.test(testSessions)
-        # del ubmModel       # needed to minimize memory consumption (see gc.collect() below)
-
+    
+    if 'RevisitModelUBM' in TEST_MODELS:
+        test_model(RevisitModelUBM(), 'RevisitModelUBM')
     
     if 'WCClassUBM' in TEST_MODELS:
-        ubmModel = WCClassUbmModel(CLASS_K, query_class_map)
-        ubmModel.train(sessions)
-        test_info = "K=" + str(CLASS_K) + ",D=" + str(DAY_D) + "\t" + 'WCClassUBM\n' + ubmModel.test(testSessions) + "\n"
-        model_info = ubmModel.get_model_info()
-        relevance_list = ubmModel.get_relevance_list()
-        print test_info
-        output_relevance(out_dir + "/K" + str(CLASS_K) + "D" + str(DAY_D) + "_WCClassUBM.model.relevance", relevance_list)
-        output_information_to_file(out_dir + "/K" + str(CLASS_K) + "D" + str(DAY_D) + "_WCClassUBM.model", test_info + model_info)
-        del relevance_list
-        del ubmModel 
+        test_model(WCClassUbmModel(CLASS_K, query_class_map), 'WCClassUBM')
         
     if 'WCOneUBM' in TEST_MODELS:
-        ubmModel = WCRealUbmModel(1, query_class_map)
-        ubmModel.train(sessions)
-        test_info = "K=" + str(CLASS_K) + ",D=" + str(DAY_D) + "\t" + 'WCOneUBM\n' + ubmModel.test(testSessions) + "\n"
-        model_info = ubmModel.get_model_info()
-        relevance_list = ubmModel.get_relevance_list()
-        print test_info
-        output_relevance(out_dir + "/K" + str(CLASS_K) + "D" + str(DAY_D) + "_WCOneUBM.model.relevance", relevance_list)
-        output_information_to_file(out_dir + "/K" + str(CLASS_K) + "D" + str(DAY_D) + "_WCOneUBM.model", test_info + model_info)
-        del relevance_list
-        del ubmModel 
+        test_model(WCRealUbmModel(1, query_class_map), 'WCOneUBM')
     
     if 'NaiveModel' in TEST_MODELS:
-        ubmModel = NaiveModel()
-        ubmModel.train(sessions)
-        test_info = "K=" + str(CLASS_K) + ",D=" + str(DAY_D) + "\t" + 'NaiveModel\n' + ubmModel.test(testSessions) + "\n"
-        model_info = ubmModel.get_model_info()
-        relevance_list = ubmModel.get_relevance_list()
-        print test_info
-        output_relevance(out_dir + "/K" + str(CLASS_K) + "D" + str(DAY_D) + "_NaiveModel.model.relevance", relevance_list)
-        output_information_to_file(out_dir + "/K" + str(CLASS_K) + "D" + str(DAY_D) + "_NaiveModel.model", test_info + model_info)
-        del relevance_list
-        del ubmModel
+        test_model(NaiveModel(), 'NaiveModel')
     
     if 'WCRealUBM' in TEST_MODELS:
-        ubmModel = WCRealUbmModel(CLASS_K, query_class_map)
-        ubmModel.train(sessions)
-        test_info = "K=" + str(CLASS_K) + ",D=" + str(DAY_D) + "\t" + 'WCRealUBM\n' + ubmModel.test(testSessions) + "\n"
-        model_info = ubmModel.get_model_info()
-        relevance_list = ubmModel.get_relevance_list()
-        print test_info
-        output_relevance(out_dir + "/K" + str(CLASS_K) + "D" + str(DAY_D) + "_WCRealUBM.model.relevance", relevance_list)
-        output_information_to_file(out_dir + "/K" + str(CLASS_K) + "D" + str(DAY_D) + "_WCRealUBM.model", test_info + model_info)
-        del relevance_list
-        del ubmModel 
+        test_model(WCRealUbmModel(CLASS_K, query_class_map), 'WCRealUBM')
+    
+    if 'POMModel' in TEST_MODELS:
+        test_model(POMModel(), 'POMModel')
         
-    # if 'DBN' in USED_MODELS:
-        # dbnModel = DbnModel((0.9, 0.9, 0.9, 0.9))
-        # dbnModel.train(sessions)
-        # print 'DBN:', dbnModel.test(testSessions)
-        # del dbnModel       # needed to minimize memory consumption (see gc.collect() below)
+    if 'DBN' in TEST_MODELS:
+        test_model(DbnModel((0.9, 0.9, 0.9, 0.9)), 'DBNModel')
 
 

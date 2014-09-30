@@ -1,14 +1,6 @@
 import math
 
-def arr_string(arr):
-    info = ""
-    if len(arr) > 0:
-        info += str(arr[0])
-        for i in range(1, len(arr)):
-            info += "\t" + str(arr[i])
-    return info
-
-def arr_string(arr, sep):
+def arr_string(arr, sep="\t"):
     info = ""
     if len(arr) > 0:
         info += str(arr[0])
@@ -23,7 +15,10 @@ def string_arr(str, sep, process_function):
         if process_function == "int":
             ret.append(int(arr[i]))
         elif process_function == "float":
-            ret.append(float(arr[i]))
+            if arr[i] == "":
+                ret.append(0.0)
+            else:
+                ret.append(float(arr[i]))
         else:
             ret.append(arr[i])
     return ret
