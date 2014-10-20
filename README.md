@@ -47,6 +47,7 @@ A small example can be found under `sample/` (tab-separated). 5 files are includ
 
 # Usage
 in bin/config_sample.py: select click models (e.g.: TEST_MODELS = ['THCM', 'UBM','DBN','POM'])
+
 in bin/ : python wc_click_model_inference_by_id.py ../sample
 
 # Output
