@@ -3,18 +3,14 @@ import urllib
 
 from wc_common import *
 
-#root_dir = ".."
 root_dir = "D:/work/sogou/MOUSE"
-#session_file_name = root_dir + "/data/mouse-log-20140410-41-1"
 session_file_name = root_dir + "/data/mouse_log_10000.sample"
 train_percentage = 0.7
-K = 3
+K = 1
 D = 1
-#class_file_name = root_dir + "/data/cluster_data/K" + str(K) + "D" + str(D) + "_class"
 result_num = 10
 featureList = [ "url", "left_dx", "horizontal_move_right", "v_fix_time", "fix_time", "hover_time", "action_num", "rank", "isexam", "isclick", "clicktime", "vrid" ]
 
-#out_dir = root_dir + "/data/K" + str(K) + "D" + str(D) + "_click_data_test"
 out_dir = "../data/sample_1000"
 if not os.path.exists(out_dir):
     os.system("mkdir " + out_dir)
@@ -102,13 +98,19 @@ print "query " + str(load_query_count)
 query_id_map = {}
 valid_count = 0
 out_query_id_file = open(out_dir + "/query_id", "w")
+out_class_file = open(out_dir + "/query_class", "w")
 for i in range(0, len(query_list)):
     query = query_list[i]
-    if query_train_count_map[query] > 0 and query_test_count_map[query] > 0:
+    if query_train_count_map[query] > 0:
         query_id_map[query] = valid_count
         out_query_id_file.write(query + "\t" + str(query_id_map[query]) + "\t" + str(query_train_count_map[query]) + "\t" + str(query_test_count_map[query]) + "\n")
+        out_class_file.write(str(query_id_map[query]))
+        for j in range(0, K):
+            out_class_file.write("\t" + str(1))
+        out_class_file.write("\n")
         valid_count += 1
 out_query_id_file.close()
+out_class_file.close()
 print "valid query " + str(valid_count)
 
 print "begine to map url id"
@@ -207,3 +209,5 @@ for url in url_id_map.keys():
     out_url_id_file.write(str(url) + "\t" + str(url_id_map[url]) + "\n")
 out_url_id_file.close()    
 
+os.system("rm " + out_dir + "/train_data_tmp")
+os.system("rm " + out_dir + "/test_data_tmp")
