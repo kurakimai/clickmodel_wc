@@ -100,6 +100,8 @@ class ClickModel:
         perplexity = sum(positionPerplexity) / len(positionPerplexity)
         N = len(sessions)
         
+        #print str(positionPerplexityClickSkip)
+        
         for q in xrange(MAX_QUERY_ID):
             for i in range(0, MAX_DOCS_PER_QUERY + 1):
                 _x = self.test_perplexity_query_position[q][i]
@@ -117,16 +119,18 @@ class ClickModel:
         for i in range(0, MAX_DOCS_PER_QUERY):
             ret_str += "\t" + str(positionPerplexity[i])
         ret_str += "\n"
-        # ret_str += "positionPerplexityClickSkip"
-        # for i in range(0, MAX_DOCS_PER_QUERY):
-            # ret_str += "\t" + str(positionPerplexityClickSkip[i])
-        # ret_str += "\n"
+        
+        ret_str += "positionPerplexitySkip"
+        for i in range(0, MAX_DOCS_PER_QUERY):
+            ret_str += "\t" + str(positionPerplexityClickSkip[0][i])
+        ret_str += "\n"
+        
+        ret_str += "positionPerplexityClick"
+        for i in range(0, MAX_DOCS_PER_QUERY):
+            ret_str += "\t" + str(positionPerplexityClickSkip[1][i])
+        ret_str += "\n"
         
         return ret_str
-        # if reportPositionPerplexity:
-            # return logLikelihood / N / MAX_DOCS_PER_QUERY, perplexity, positionPerplexity, positionPerplexityClickSkip
-        # else:
-            # return logLikelihood / N / MAX_DOCS_PER_QUERY, perplexity
 
     def _getClickProbs(self, s, possibleIntents):
         """
@@ -229,10 +233,9 @@ class DbnModel(ClickModel):
             else:
                 print >>sys.stderr, 'Iteration: %d, RMSD: %.10f' % (iteration_count + 1, rmsd)
                 print >>sys.stderr, 'Q functional: %f' % Q_functional
+            del urlRelFractions
         if PRETTY_LOG:
             sys.stderr.write('\n')
-        for q, intentWeights in self.queryIntentsWeights.iteritems():
-            self.queryIntentsWeights[q] = sum(intentWeights) / len(intentWeights)
 
     @staticmethod
     def testBackwardForward():
@@ -758,10 +761,11 @@ class WCRealUbmModel(ClickModel):
                 sys.stderr.write('%d..' % (iteration_count + 1))
             else:
                 print >>sys.stderr, 'Iteration: %d, RMSD: %.10f' % (iteration_count + 1, rmsd)
+            del alphaFractions
+            del gammaFractions
+            del muFranctions
         if PRETTY_LOG:
             sys.stderr.write('\n')
-        for q, intentWeights in self.queryIntentsWeights.iteritems():
-            self.queryIntentsWeights[q] = sum(intentWeights) / len(intentWeights)
 
     def _getSessionProb(self, s):
         clickProbs = self._getClickProbs(s, [False, True])
@@ -997,17 +1001,39 @@ class POMModel(ClickModel):
         click_seq_list = sorted(click_seq_list, key = lambda x: x[1], reverse=False)
         return click_seq_list
     
+    def get_model_info(self):
+        ret = "+++++V:\n"
+        for m in xrange(MAX_DOCS_PER_QUERY):
+            for n in xrange(MAX_DOCS_PER_QUERY):
+                ret += str(self.query_V[m][n]) + "\t"
+            ret += "\n"
+        return ret
+        
+    def get_relevance_list(self):
+        ret = []
+        for q in xrange(MAX_QUERY_ID):
+            for url in self.alpha[q].keys():
+                ret.append([q, url, self.alpha[q][url]])
+        return ret
+    
+    def get_s_list(self, s):
+        S_list = []
+        for url in s.urls:
+            S_list.append(1.0 - self.alpha[s.query][url])
+        return S_list
+    
     def train(self, sessions):
         #possibleIntents = [False] if self.ignoreIntents else [False, True]# no use
-        
-        self.query_V = [[[1.0 for j in xrange(MAX_DOCS_PER_QUERY)] for i in xrange(MAX_DOCS_PER_QUERY)] for q in xrange(MAX_QUERY_ID)]
-        self.query_S = [[1.0 for i in xrange(MAX_DOCS_PER_QUERY)] for q in xrange(MAX_QUERY_ID)]
-        self.first_click_prob = [1.0 for q in xrange(MAX_QUERY_ID)]
+        self.alpha = [defaultdict(lambda: DEFAULT_REL) for q in xrange(MAX_QUERY_ID)]
+        self.query_V = [[(1.0 / (MAX_DOCS_PER_QUERY + 1)) for j in xrange(MAX_DOCS_PER_QUERY + 1)] for i in xrange(MAX_DOCS_PER_QUERY + 1)]
+        #self.query_S = [[1.0 for i in xrange(MAX_DOCS_PER_QUERY)] for q in xrange(MAX_QUERY_ID)]
+        self.first_click_prob = [[1.0 for i in xrange(MAX_DOCS_PER_QUERY + 1)] for q in xrange(MAX_QUERY_ID)]
 
         for iteration_count in xrange(MAX_ITERATION_POM):
-            iter_V_up = [[[0.0 for j in xrange(MAX_DOCS_PER_QUERY)] for i in xrange(MAX_DOCS_PER_QUERY)] for q in xrange(MAX_QUERY_ID)]
-            iter_V_down = [[0.0 for i in xrange(MAX_DOCS_PER_QUERY)] for q in xrange(MAX_QUERY_ID)]
-            iter_S_up = [[0.0 for i in xrange(MAX_DOCS_PER_QUERY)] for q in xrange(MAX_QUERY_ID)]
+            iter_V_up = [[0.0 for j in xrange(MAX_DOCS_PER_QUERY + 1)] for i in xrange(MAX_DOCS_PER_QUERY + 1)]
+            iter_V_down = [0.0 for i in xrange(MAX_DOCS_PER_QUERY + 1)]
+            iter_S_up = [defaultdict(lambda: 0) for q in xrange(MAX_QUERY_ID)]
+            iter_S_down = [defaultdict(lambda: 0) for q in xrange(MAX_QUERY_ID)]
             
             session_p_count = 0
             for s in sessions:
@@ -1015,14 +1041,19 @@ class POMModel(ClickModel):
                 # if session_p_count % 100 == 0:
                     # print "POM process " + str(session_p_count)
                 query = s.query
-                ori_v_list = []
+                ori_v_list = [MAX_DOCS_PER_QUERY]
                 click_seq_list = self.generate_click_seq(s.clicks, s.click_times)
                 for i in range(0, len(click_seq_list)):
                     ori_v_list.append(click_seq_list[i][0])
+                ori_v_list.append(MAX_DOCS_PER_QUERY)
                 ori_s_list = [0 for x in ori_v_list]
                 path_list = []
-                add_Qk_list(0, len(ori_v_list) - 1, path_list, ori_v_list, ori_s_list, self.query_V[query], self.query_S[query], self.first_click_prob[query], iteration_count, MAX_QK_LENGTH, MAX_INSERT_NUM, MAX_DOCS_PER_QUERY)
-                #print "path list num " + str(len(path_list))
+                S_list = self.get_s_list(s)
+                #print "C-" + str(ori_v_list)
+                #print "S-" + str(ori_s_list)
+                add_Qk_list(0, len(ori_v_list) - 1, path_list, ori_v_list, ori_s_list, self.query_V, S_list, self.first_click_prob[query], iteration_count, MAX_QK_LENGTH, MAX_INSERT_NUM, MAX_DOCS_PER_QUERY, MAX_TOP_N, 1)
+                if len(path_list) > 50:
+                    print "path list num " + str(len(path_list))
                 if len(path_list) == 0:
                     #ignore no click session
                     continue
@@ -1030,19 +1061,28 @@ class POMModel(ClickModel):
                     for i in range(0, len(path.v_list) - 1):
                         m = path.v_list[i]
                         n = path.v_list[i + 1]
-                        iter_V_up[query][m][n] = iter_V_up[query][m][n] + path.prob
+                        iter_V_up[m][n] = iter_V_up[m][n] + path.prob
                     for i in range(0, len(path.v_list)):
                         m = path.v_list[i]
-                        iter_V_down[query][m] = iter_V_down[query][m] + path.prob
-                        if path.s_list[i] == 1:
-                            iter_S_up[query][m] = iter_S_up[query][m] + path.prob
+                        if not m == MAX_DOCS_PER_QUERY:
+                            url_m = s.urls[m]
+                            iter_V_down[m] = iter_V_down[m] + path.prob
+                            iter_S_down[query][url_m] = iter_S_down[query][url_m] + path.prob
+                            if path.s_list[i] == 1:
+                                iter_S_up[query][url_m] = iter_S_up[query][url_m] + path.prob
+            #print "----\n" + str(iter_V_down)
+            for m in range(0, MAX_DOCS_PER_QUERY + 1):
+                if iter_V_down[m] > 0:
+                    for n in range(0, MAX_DOCS_PER_QUERY + 1):
+                        self.query_V[m][n] = iter_V_up[m][n] / iter_V_down[m]
             for query in range(0, MAX_QUERY_ID):
-                for m in range(0, MAX_DOCS_PER_QUERY):
-                    if iter_V_down[query][m] > 0:
-                        query_S[query][m] = iter_S_up[query][m] / iter_V_down[query][m]
-                        for n in range(0, MAX_DOCS_PER_QUERY):
-                            query_V[query][m][n] = iter_V_up[query][m][n] / iter_V_down[query][m]
-                            
+                for url in iter_S_down[query].keys():
+                    if iter_S_down[query][url] > 0:
+                        self.alpha[query][url] = 1.0 - (iter_S_up[query][url] / iter_S_down[query][url])
+            del iter_V_up
+            del iter_V_down
+            del iter_S_up
+            del iter_S_down               
             if not PRETTY_LOG:
                 sys.stderr.write('M\n')
             if PRETTY_LOG:
@@ -1055,22 +1095,35 @@ class POMModel(ClickModel):
             Returns clickProbs list
             clickProbs[i][k] = P(C_1, ..., C_k | I=i)
         """
-        clickProbs = dict((i, []) for i in possibleIntents)
-        for i in possibleIntents:
-            for rank in range(0, MAX_DOCS_PER_QUERY):
-                query = s.query
-                ori_v_list = []
-                click_seq_list = self.generate_click_seq(s.clicks, s.click_times)
-                for j in range(0, len(click_seq_list)):
-                    ori_v_list.append(click_seq_list[j][0])
-                ori_s_list = [0 for x in ori_v_list]
-                path_list = []
-                add_Qk_list(0, len(ori_v_list) - 1, path_list, ori_v_list, ori_s_list, self.query_V[query], self.query_S[query], self.first_click_prob[query], 1, MAX_QK_LENGTH, MAX_INSERT_NUM, MAX_DOCS_PER_QUERY)
-                path_list = sorted(path_list, key=lambda x: x.prob, reverse = True)
-                if len(path_list) > 0:
-                    clickProbs[i].append(path_list[0].prob)
+        clickProbs = dict((poi, []) for poi in possibleIntents)
+        layout = [False] * len(s.layout) if self.ignoreLayout else s.layout
+        query = s.query
+        S_list = self.get_s_list(s)
+        P0T = [[1.0, 0.0, 0.0, 0.0] for k in xrange(MAX_DOCS_PER_QUERY)]
+        #print str(self.query_V)
+        #print str(S_list)
+        for m in range(0, MAX_DOCS_PER_QUERY):
+            P0T[m][2] = self.query_V[MAX_DOCS_PER_QUERY][m]
+        for v in range(0, MAX_POM_CHAIN):
+            for m in range(0, MAX_DOCS_PER_QUERY):
+                P0T[m][0] *= (1.0 - P0T[m][2] * (1.0 - max(min(S_list[m], 0.999999), 0.0000001)))
+            for m in range(0, MAX_DOCS_PER_QUERY):
+                P0T[m][3] = 0
+                for n in range(0, MAX_DOCS_PER_QUERY):
+                    P0T[m][3] += P0T[n][2] * self.query_V[n][m]
+            for m in range(0, MAX_DOCS_PER_QUERY):
+                P0T[m][2] = max(min(P0T[m][3], 0.999999), 0.0000001)
+            
+        #print str(P0T)
+        for rank, c in enumerate(s.clicks):
+            url = s.urls[rank]
+            prob = {False: 0.0, True: 0.0}
+            for poi in possibleIntents:
+                prevProb = 1 if rank == 0 else clickProbs[poi][-1]
+                if c == 0:
+                    clickProbs[poi].append(prevProb * P0T[rank][0])
                 else:
-                    clickProbs[i].append(0.2)
+                    clickProbs[poi].append(prevProb * (1.0 - P0T[rank][0]))
         return clickProbs
         
 class RevisitModelUBM(ClickModel):        
@@ -1180,6 +1233,8 @@ class RevisitModelUBM(ClickModel):
                 sys.stderr.write('Iteration: %d, RMSD: %.10f' % (iteration_count + 1, rmsd))
             else:
                 print >>sys.stderr, 'Iteration: %d, RMSD: %.10f' % (iteration_count + 1, rmsd)
+            del alphaFractions
+            del gammaFractions
         if PRETTY_LOG:
             sys.stderr.write('\n')
         

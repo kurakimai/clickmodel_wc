@@ -269,6 +269,19 @@ def compute_ALL(TN, FP, FN, TP):
         if abs(1.0 - PRe) > 0:
             Kappa = (PRa - PRe) / (1.0 - PRe)
     return (accuracy, precision, recall, F, Kappa, FPR)
+    
+def compute_avg_var(list):
+    avg = 0.0
+    var = 0.0
+    N = len(list)
+    if N > 0:
+        for i in range(0, N):
+            avg += list[i]
+        avg /= N
+        for i in range(0, N):
+            var += (list[i] - avg) * (list[i] - avg)
+        var /= N
+    return (avg, var)
 
 def compute_correlation(x, y, max_len):
     length = max_len
