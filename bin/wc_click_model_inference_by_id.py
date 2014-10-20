@@ -1347,8 +1347,8 @@ if __name__ == '__main__':
 
     print 'Train sessions: %d, test sessions: %d' % (len(sessions), len(testSessions))
     
-    if 'RevisitModelUBM' in TEST_MODELS:
-        test_model(RevisitModelUBM(), 'RevisitModelUBM')
+    if 'RevisitModelUBM' in TEST_MODELS or 'THCM' in TEST_MODELS:
+        test_model(RevisitModelUBM(), 'THCM')
     
     if 'WCClassUBM' in TEST_MODELS:
         test_model(WCClassUbmModel(CLASS_K, query_class_map), 'WCClassUBM')
@@ -1359,13 +1359,13 @@ if __name__ == '__main__':
     if 'NaiveModel' in TEST_MODELS:
         test_model(NaiveModel(), 'NaiveModel')
     
-    if 'WCRealUBM' in TEST_MODELS:
-        test_model(WCRealUbmModel(CLASS_K, query_class_map), 'WCRealUBM')
+    if 'WCRealUBM' in TEST_MODELS or 'UBM' in TEST_MODELS:
+        test_model(WCRealUbmModel(CLASS_K, query_class_map), 'UBM')
     
-    if 'POMModel' in TEST_MODELS:
-        test_model(POMModel(), 'POMModel')
+    if 'POMModel' in TEST_MODELS or 'POM' in TEST_MODELS:
+        test_model(POMModel(), 'POM')
         
     if 'DBN' in TEST_MODELS:
-        test_model(DbnModel((0.9, 0.9, 0.9, 0.9)), 'DBNModel')
+        test_model(DbnModel((0.9, 0.9, 0.9, 0.9)), 'DBN')
 
 
