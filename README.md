@@ -28,7 +28,7 @@ Directory with the sample dataset.
 A small example can be found under `sample/` (tab-separated). 5 files are included in this directory:
 
 - query_id: encode each query into a unique id. 
-  - e.g.: "test  1 10  5" means query ("test") with a unique id (5), 10 sessions are found in search logs and 5 sessions contain click action.
+  - e.g.: "test  1 10  5" means query ("test") with a unique id (1), 10 sessions are found in search logs and 5 sessions contain click action.
 - query_class: The probability of been each searh intent for each query. 
   - e.g.: "test 0.25  0.25  0.25  0.25" means query ("test") has four search intents. Set "query_id 1" for each query if this information is needless.
 - url_id: encode each URL into a unique id.
