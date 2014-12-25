@@ -1,13 +1,17 @@
 MAX_ITERATIONS = 40
 MAX_ITERATION_POM = 5
+MAX_ITERATION_THCM = 10
 DEBUG = False
 PRETTY_LOG = True
 CLASS_K = 1
 DAY_D = 1
-TEST_MODELS = ['THCM', 'UBM','DBN','POM']
-#TEST_MODELS = ['POMModel']
+#TEST_MODELS = ['MousePositionUBM', 'MouseUBM']
+#TEST_MODELS = ['SQCM', 'THCM', 'UBM','DBN','POM']
+#TEST_MODELS = ['THCM']
+TEST_MODELS = ['TCM']
 MIN_DOCS_PER_QUERY = 10
 MAX_DOCS_PER_QUERY = 10
+
 SERP_SIZE = 10
 EXTENDED_LOG_FORMAT = False
 
@@ -21,4 +25,14 @@ MAX_INSERT_NUM = 3
 MAX_QK_LENGTH = 2
 MAX_TOP_N = 50
 MAX_POM_CHAIN = 5
+
+#MOUSE_EXAM_PREDICT_MODEL = ['exam_model_M', "exam_model_Q", "exam_model_M_Q", "single_M", "single_Q", "single_M_Q"]
+#MOUSE_EXAM_PREDICT_MODEL = ['exam_model_M', "exam_model_M_Q", "single_M", "single_M_Q"]
+MOUSE_EXAM_PREDICT_MODEL = []
+RESULT_NUM = 10
+GAMMA_FEATURE_LIST = ["left_dx", "horizontal_move_right", "v_fix_time", "fix_time", "TMR_hover_time", "action_num"]
+MOUSE_BASE_FEATURE_NUM = len(GAMMA_FEATURE_LIST)
+OUTLIER_LIST = [[0.001, 2000], [0.001, 100000], [0.001, 1000000], [0.001, 1000000], [0.001, 1000000], [0.001, 1000000]]
+MIN_MAX_LIST = [[0.001, 2000], [0.001, 10000], [0.001, 10000], [0.001, 10000], [0.001, 10000], [0.001, 1000]]
+
 

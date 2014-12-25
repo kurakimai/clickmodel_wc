@@ -23,6 +23,28 @@ def string_arr(str, sep, process_function):
             ret.append(arr[i])
     return ret
 
+def matrix_string(arr, inner_sep="\t", outer_sep="\n"):
+    info = ""
+    for i in range(0, len(arr)):
+        info += arr_string(arr[i], inner_sep)
+        info += outer_sep
+    return info
+
+def arr_string_index(arr, index, sep="\t"):
+    info = ""
+    if len(arr) > 0:
+        info += str(arr[0][index])
+        for i in range(1, len(arr)):
+            info += sep + str(arr[i][index])
+    return info
+
+def matrix_string_index(arr, index, inner_sep="\t", outer_sep="\n"):
+    info = ""
+    for i in range(0, len(arr)):
+        info += arr_string_index(arr[i], index, inner_sep)
+        info += outer_sep
+    return info
+
 class Rect:
     x1 = 0
     x2 = 0
@@ -310,3 +332,20 @@ def compute_correlation(x, y, max_len):
         # print "Y = " + str(y)
         return 0.0
     return (a / math.sqrt(b * c))
+
+def load_arff_line(file_name):
+    in_file = open(file_name)
+    line_list = in_file.readlines()
+    in_file.close()
+    head_list = []
+    data_list = []
+    head_flag = 1
+    for line in line_list:
+        if line.startswith("@data"):
+            head_flag = 0
+            continue
+        if head_flag == 1:
+            head_list.append(line)
+        else:
+            data_list.append(line)
+    return (head_list, data_list)
