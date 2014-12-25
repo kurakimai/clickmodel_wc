@@ -2302,6 +2302,7 @@ class TCMAdModel(ClickModel):
         if PRETTY_LOG:
             sys.stderr.write('\n')
     
+    #revised version, perform better than original version
     def compute_PC2(self,q, u1, u2, i):
         prob_c = [0.0, 0.0, 0.0, 0.0] #<a1,a2> <a2,a1> <a1> <a2>
         base_norm_c = [0.0, 0.0, 0.0, 0.0]
@@ -2344,7 +2345,8 @@ class TCMAdModel(ClickModel):
         #print "Base norm c:\t" + str(base_norm_c)
         #print "Prob c:\t" + str(prob_c)
         return (ctr_sum[0], ctr_sum[1])
-            
+    
+    #original paper's method
     def compute_PC(self,q, u1, u2, i):
         base_norm = [0.0, 0.0, 0.0]# Pa1, Pa2, Fa1
         ctr_sum = [0.0, 0.0]

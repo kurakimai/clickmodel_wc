@@ -1,5 +1,8 @@
 .metadata
 data/
+cm_data/
+bin-bak/
+user_preference_test_data/
 *.out
 
 
